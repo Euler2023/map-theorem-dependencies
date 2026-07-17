@@ -46,7 +46,7 @@ Do not assume a manifest covers the complete document. A conversion manifest may
 |---|---|
 | `source_id` | Result used as an input |
 | `target_id` | Result established using the source |
-| `relation` | direct, technical-input, implication, alternative, context |
+| `relation` | direct, technical-input, implication, complementary-case, alternative, context |
 | `evidence_location` | Exact file/line or PDF page |
 | `evidence` | Short paraphrase |
 | `confidence` | high, medium, low |
@@ -102,7 +102,8 @@ Check programmatically where practical:
 - every included non-context node has a path to a selected conclusion;
 - every conclusion is reachable from a foundational input;
 - no unexpected cycle;
-- every `alternative` edge targets a shared gate or equivalent conclusion;
+- every `complementary-case` edge is one required parameter-range branch of the target;
+- every `alternative` edge targets a shared gate or equivalent conclusion and is genuinely substitutable;
 - all labels use identifiers found in the source.
 
 Then manually verify the main spine and every low-confidence edge.

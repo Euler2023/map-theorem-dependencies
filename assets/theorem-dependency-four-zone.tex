@@ -1,113 +1,144 @@
-% Four-zone theorem dependency skeleton.
-% Build dependency-ledger.md and dependency-edges.csv before editing.
-% Logical direction: prerequisite -> result proved using it.
-\documentclass[UTF8,12pt,tikz,border=9pt]{standalone}
-\usepackage{ctex}
-\usepackage{amsmath,amssymb}
-\usetikzlibrary{arrows.meta,bending,backgrounds,calc,positioning,shapes.geometric}
+% Four-stage vertical theorem dependency skeleton.
+% Replace placeholder results only after building dependency-ledger.md and dependency-edges.csv.
+% Arrow direction is prerequisite -> result proved using it.
+\documentclass[10pt]{ctexart}
+\usepackage[paperwidth=210mm,paperheight=340mm,top=7mm,bottom=7mm,left=7mm,right=7mm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath,amssymb,unicode-math}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,backgrounds,calc}
+\setCJKmainfont{Microsoft YaHei}
+\setmainfont{TeX Gyre Termes}
+\setmathfont{TeX Gyre Termes Math}
+\pagestyle{empty}
 
-\definecolor{ink}{HTML}{263548}
-\definecolor{muted}{HTML}{6C7888}
-\definecolor{foundation}{HTML}{65758B}
-\definecolor{routeA}{HTML}{356FA3}
-\definecolor{routeAbg}{HTML}{EAF3FA}
-\definecolor{routeB}{HTML}{2F7D66}
-\definecolor{routeBbg}{HTML}{E8F4EF}
-\definecolor{application}{HTML}{A56A16}
-\definecolor{applicationbg}{HTML}{FBF2DF}
-\definecolor{conclusion}{HTML}{A74343}
-\definecolor{conclusionbg}{HTML}{F9EAEA}
-\definecolor{alternative}{HTML}{72538F}
-\definecolor{contextbg}{HTML}{F2F4F6}
+\definecolor{ink}{HTML}{183042}
+\definecolor{muted}{HTML}{60717D}
+\definecolor{blue}{HTML}{2F6F9F}
+\definecolor{bluefill}{HTML}{E8F3FA}
+\definecolor{purple}{HTML}{7157A6}
+\definecolor{purplefill}{HTML}{F1ECFA}
+\definecolor{gold}{HTML}{B66A14}
+\definecolor{goldfill}{HTML}{FFF3D8}
+\definecolor{rose}{HTML}{A94C5A}
+\definecolor{rosefill}{HTML}{FBECEF}
+\definecolor{linegray}{HTML}{8B9AA5}
 
 \pgfdeclarelayer{background}
 \pgfsetlayers{background,main}
 
 \tikzset{
-  >={Stealth[length=5pt 1.1,width'=0pt .55]},
-  result/.style={rectangle,rounded corners=2.5pt,draw=ink!72,fill=white,
-    line width=.65pt,align=center,inner xsep=5pt,inner ysep=4pt,
-    minimum width=3.7cm,minimum height=.9cm,font=\footnotesize,text=ink},
-  foundation/.style={result,draw=foundation,fill=contextbg},
-  routeA/.style={result,draw=routeA,fill=routeAbg,line width=.9pt},
-  routeB/.style={result,draw=routeB,fill=routeBbg,line width=.9pt},
-  application/.style={result,draw=application,fill=applicationbg,minimum width=3.15cm},
-  conclusion/.style={result,draw=conclusion,fill=conclusionbg,
-    minimum width=4.4cm,minimum height=1.25cm,line width=1.15pt,font=\small},
-  context/.style={result,draw=foundation!60,minimum height=.72cm,font=\scriptsize},
-  gate/.style={diamond,aspect=2.1,draw=application,fill=applicationbg,
-    align=center,font=\scriptsize,inner sep=2pt,text=ink},
-  direct/.style={->,draw=ink!78,line width=.85pt,shorten >=2pt,shorten <=2pt},
-  input/.style={->,draw=muted,line width=.62pt,shorten >=2pt,shorten <=2pt},
-  alt/.style={->,draw=alternative,line width=1pt,double distance=.9pt,
-    dash pattern=on 4pt off 2.4pt,shorten >=2pt,shorten <=2pt},
-  imply/.style={->,draw=muted,line width=.58pt,densely dotted,
-    shorten >=2pt,shorten <=2pt},
-  zonetitle/.style={font=\small\bfseries,text=ink,anchor=west},
-  legend/.style={font=\scriptsize,text=muted,anchor=west},
+  box/.style={rounded corners=1.8mm,line width=.7pt,align=center,
+    inner xsep=2.2mm,inner ysep=1.2mm,font=\fontsize{9.5}{11.1}\selectfont,text=ink},
+  dyn/.style={box,draw=blue,fill=bluefill},
+  ana/.style={box,draw=purple,fill=purplefill},
+  key/.style={box,draw=gold,fill=goldfill,line width=1.2pt,
+    font=\fontsize{11}{13}\selectfont},
+  counter/.style={box,draw=rose,fill=rosefill},
+  final/.style={box,draw=rose,fill=rosefill,line width=1.4pt,
+    font=\fontsize{12}{14.2}\selectfont},
+  stagehead/.style={rounded corners=2.5mm,minimum width=11.2cm,align=left,
+    inner xsep=2.5mm,inner ysep=.8mm,font=\fontsize{10.5}{12.4}\selectfont\bfseries,text=white},
+  direct/.style={-{Stealth[length=2.2mm,width=1.5mm]},draw=ink!78,line width=.78pt,
+    shorten >=1.2mm,shorten <=1.2mm},
+  technical/.style={-{Stealth[length=2mm,width=1.35mm]},draw=linegray,line width=.55pt,
+    shorten >=1.1mm,shorten <=1.1mm},
+  alternate/.style={-{Stealth[length=2.1mm,width=1.45mm]},draw=purple,dashed,line width=.72pt,
+    shorten >=1.1mm,shorten <=1.1mm},
+  imply/.style={-{Stealth[length=2mm,width=1.35mm]},draw=linegray,densely dotted,line width=.7pt,
+    shorten >=1.1mm,shorten <=1.1mm}
 }
 
-\newcommand{\zone}[6]{%
-  \begin{pgfonlayer}{background}
-    \fill[#5,rounded corners=5pt] (#1,#2) rectangle (#3,#4);
-    \draw[#6,line width=.65pt,rounded corners=5pt] (#1,#2) rectangle (#3,#4);
-  \end{pgfonlayer}}
-
 \begin{document}
+\centering
 \begin{tikzpicture}[x=1cm,y=1cm]
-  \zone{0}{1.7}{4.8}{13.9}{contextbg}{foundation!60}
-  \zone{5.3}{1.7}{14.7}{13.9}{routeAbg!42}{routeA!65}
-  \zone{15.2}{1.7}{22.7}{13.9}{applicationbg!48}{application!65}
-  \zone{23.2}{1.7}{28.8}{13.9}{conclusionbg!48}{conclusion!65}
-  \zone{0}{-.1}{28.8}{1.05}{contextbg}{foundation!60}
+  \path[use as bounding box] (0,0) rectangle (19.2,32.5);
 
-  \node[font=\Large\bfseries,text=ink] at (14.4,14.75)
-    {主要定理与命题的逻辑依赖图};
-  \node[zonetitle] at (.3,13.5) {I. 基础工具};
-  \node[zonetitle] at (5.6,13.5) {II. 两条主证明路线};
-  \node[zonetitle] at (15.5,13.5) {III. 应用构造与闭合};
-  \node[zonetitle] at (23.5,13.5) {IV. 最终结论};
+  \begin{pgfonlayer}{background}
+    \fill[bluefill!48,rounded corners=3mm] (0.15,25.80) rectangle (19.05,30.75);
+    \draw[blue!30,rounded corners=3mm] (0.15,25.80) rectangle (19.05,30.75);
+    \fill[purplefill!38,rounded corners=3mm] (0.15,13.00) rectangle (19.05,25.40);
+    \draw[purple!28,rounded corners=3mm] (0.15,13.00) rectangle (19.05,25.40);
+    \fill[goldfill!48,rounded corners=3mm] (0.15,6.55) rectangle (19.05,12.55);
+    \draw[gold!35,rounded corners=3mm] (0.15,6.55) rectangle (19.05,12.55);
+    \fill[rosefill!45,rounded corners=3mm] (0.15,0.12) rectangle (19.05,6.10);
+    \draw[rose!32,rounded corners=3mm] (0.15,0.12) rectangle (19.05,6.10);
+  \end{pgfonlayer}
 
-  \node[foundation] (f1) at (2.4,11.7) {基础引理组 A\\引理 1.1、1.2};
-  \node[foundation] (f2) at (2.4,9.8) {基础命题 B\\命题 2.3};
-  \node[foundation] (f3) at (2.4,6.5) {技术输入 C\\引理 3.4};
+  \node[font=\fontsize{16}{18}\selectfont\bfseries,text=ink] at (9.60,31.85)
+    {Theorem dependency roadmap};
+  \draw[direct] (2.0,31.15)--(3.0,31.15);
+  \node[anchor=west,font=\fontsize{9.2}{10.8}\selectfont] at (3.1,31.15) {direct input};
+  \draw[technical] (6.0,31.15)--(7.0,31.15);
+  \node[anchor=west,font=\fontsize{9.2}{10.8}\selectfont] at (7.1,31.15) {technical input};
+  \draw[alternate] (10.3,31.15)--(11.3,31.15);
+  \node[anchor=west,font=\fontsize{9.2}{10.8}\selectfont] at (11.4,31.15) {complementary case};
+  \draw[imply] (15.4,31.15)--(16.4,31.15);
+  \node[anchor=west,font=\fontsize{9.2}{10.8}\selectfont] at (16.5,31.15) {implication};
 
-  \node[routeA] (a1) at (7.8,11.7) {主定理 A\\定理 4.1};
-  \node[routeA] (a2) at (12.2,11.7) {增强/推论 A$'$\\推论 4.5};
-  \node[routeB] (b1) at (7.8,7.4) {替代主定理 B\\定理 5.1};
-  \node[routeB] (b2) at (12.2,7.4) {优化版本 B$'$\\定理 5.6};
+  \node[stagehead,fill=blue,anchor=west] at (.42,30.60) {I · Foundations and reduction};
+  \node[stagehead,fill=purple,anchor=west] at (.42,25.25) {II · Analytic branches and assembly};
+  \node[stagehead,fill=gold,anchor=west] at (.42,12.40) {III · Main positive conclusion};
+  \node[stagehead,fill=rose,anchor=west] at (.42,5.95) {IV · Counterexample branch};
 
-  \node[application] (c1) at (17.25,7.1) {反证假设导出构造\\命题 6.2};
-  \node[application] (c2) at (20.85,7.1) {线性无关/非零性\\引理 7.1};
-  \node[gate] (g) at (20.0,11.25) {矛盾门\\维数或高度冲突};
+  \node[dyn,text width=3.2cm,minimum height=1.0cm] (f1) at (3.0,29.0)
+    {\textbf{Lemma 1.1}\\Foundation A};
+  \node[dyn,text width=3.2cm,minimum height=1.0cm] (f2) at (8.0,29.0)
+    {\textbf{Proposition 2.1}\\Reduction B};
+  \node[dyn,text width=3.2cm,minimum height=1.0cm] (f3) at (13.0,29.0)
+    {\textbf{Corollary 2.2}\\Orbit approximation};
+  \node[dyn,text width=5.8cm,minimum height=1.1cm] (gate1) at (9.6,26.7)
+    {\textbf{Proposition 3.1}\\Dynamics gate};
 
-  \coordinate (join) at (22.95,10.8);
-  \node[conclusion] (t) at (26.0,10.8) {最终定理\\定理 A};
-  \node[conclusion] (u) at (26.0,6.3) {第二结论\\定理 C};
+  \node[ana,text width=3.3cm,minimum height=1.0cm] (a1) at (3.0,23.4)
+    {\textbf{Lemma 4.1}\\Large-sieve input};
+  \node[ana,text width=3.3cm,minimum height=1.0cm] (a2) at (8.0,23.4)
+    {\textbf{Lemma 4.2}\\Exceptional-set bound};
+  \node[ana,text width=3.3cm,minimum height=1.0cm] (a3) at (13.0,23.4)
+    {\textbf{Lemma 4.3}\\Short-interval input};
+  \node[ana,text width=4.2cm,minimum height=1.1cm] (small) at (5.0,19.9)
+    {\textbf{Theorem 5.1}\\Small-parameter case};
+  \node[ana,text width=4.2cm,minimum height=1.1cm] (large) at (14.2,19.9)
+    {\textbf{Theorem 5.2}\\Large-parameter case};
+  \node[key,text width=5.2cm,minimum height=1.2cm] (assembly) at (9.6,15.2)
+    {\textbf{Theorem 6.1}\\\textbf{Analytic assembly}};
 
-  \node[context] (ctx1) at (8.5,.48) {背景比较：经典定理 X};
-  \node[context] (ctx2) at (19.7,.48) {补充推广：定理 Y（不参与主证明）};
+  \node[dyn,text width=5.1cm,minimum height=1.0cm] (dg) at (4.2,10.4)
+    {Dynamics gate:\\\textbf{Propositions 2.1, 3.1}};
+  \node[ana,text width=5.1cm,minimum height=1.0cm] (ag) at (15.0,10.4)
+    {Analytic gate:\\\textbf{Theorems 5.1, 5.2, 6.1}};
+  \node[key,text width=15.0cm,minimum height=1.5cm] (main) at (9.6,7.8)
+    {\textbf{Theorem A}\\\textbf{State the verified main conclusion here}};
 
-  \draw[input] (f1.east) -- (a1.west);
-  \draw[input,rounded corners=4pt] (f2.east) -- (5.05,9.8) -- (5.05,7.4) -- (b1.west);
-  \draw[input,rounded corners=4pt] (f3.east) -- (15.0,6.5) -- (c1.west);
-  \draw[imply] (a1) -- (a2);
-  \draw[imply] (b1) -- (b2);
-  \draw[direct] (c1) -- (c2);
+  \node[counter,text width=3.2cm,minimum height=1.0cm] (c1) at (3.0,4.2)
+    {\textbf{Lemma 7.1}\\Construction tool};
+  \node[counter,text width=3.2cm,minimum height=1.0cm] (c2) at (8.0,4.2)
+    {\textbf{Theorem 7.2}\\Counterexample input};
+  \node[counter,text width=3.2cm,minimum height=1.0cm] (c3) at (13.0,4.2)
+    {\textbf{Theorem 7.3}\\Failure mechanism};
+  \node[final,text width=11.0cm,minimum height=1.45cm] (counterfinal) at (9.6,1.35)
+    {\textbf{Theorem B}\\\textbf{State the verified counterexample conclusion here}};
 
-  \draw[alt,rounded corners=4pt] (a2.east) -- (14.95,11.7) -- (14.95,12.7) -- (20.0,12.7) -- (g.north);
-  \draw[alt,rounded corners=4pt] (b2.east) -- (15.0,7.4) -- (15.0,9.9) -- (18.9,9.9) -- (g.south west);
-
-  \draw[draw=ink!78,line width=.85pt,rounded corners=4pt] (g.east) -- (22.65,11.25) -- (join);
-  \draw[draw=ink!78,line width=.85pt] (c2.east) to[out=0,in=235] (join);
-  \draw[direct] (join) -- (t.west);
-  \draw[direct,rounded corners=4pt] (join) -- (22.95,6.3) -- (u.west);
-  \fill[application] (join) circle (1.6pt);
-
-  \node[zonetitle] at (.3,.62) {补充与比较};
-  \draw[direct] (23.6,2.7) -- ++(1.0,0) node[legend] {直接依赖};
-  \draw[alt] (23.6,2.25) -- ++(1.0,0) node[legend] {可替代路线};
-  \draw[imply] (26.1,2.7) -- ++(1.0,0) node[legend] {推论/推广};
-  \draw[input] (26.1,2.25) -- ++(1.0,0) node[legend] {技术输入};
+  \begin{pgfonlayer}{background}
+    \draw[direct] (f1.east)--(f2.west);
+    \draw[direct] (f2.east)--(f3.west);
+    \draw[direct] (f1.south)--(gate1.north);
+    \draw[direct] (f2.south)--(gate1.north);
+    \draw[direct] (f3.south)--(gate1.north);
+    \draw[technical] (a1.east)--(a2.west);
+    \draw[technical] (a2.east)--(a3.west);
+    \draw[direct] (a1.south)--(small.north);
+    \draw[direct] (a3.south)--(large.north);
+    \draw[alternate] (small.south) to[out=-55,in=145] (assembly.west);
+    \draw[alternate] (large.south) to[out=-125,in=35] (assembly.east);
+    \draw[direct] (gate1.south) -- (0.35,26.0) -- (0.35,10.4) -- (dg.west);
+    \draw[direct] (assembly.south)--(ag.north);
+    \draw[direct] (dg.south)--(main.north);
+    \draw[direct] (ag.south)--(main.north);
+    \draw[direct] (c1.east)--(c2.west);
+    \draw[direct] (c2.east)--(c3.west);
+    \draw[direct] (c2.south)--(counterfinal.north);
+    \draw[direct] (c3.south)--(counterfinal.north);
+  \end{pgfonlayer}
 \end{tikzpicture}
 \end{document}

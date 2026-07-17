@@ -69,11 +69,11 @@ Clone the repository, then copy only the skill package files into your Codex ski
 git clone https://github.com/Euler2023/map-theorem-dependencies.git
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills/map-theorem-dependencies"
 cp map-theorem-dependencies/SKILL.md "${CODEX_HOME:-$HOME/.codex}/skills/map-theorem-dependencies/"
-cp -R map-theorem-dependencies/agents map-theorem-dependencies/assets map-theorem-dependencies/references \
+cp -R map-theorem-dependencies/agents map-theorem-dependencies/assets map-theorem-dependencies/references map-theorem-dependencies/scripts \
   "${CODEX_HOME:-$HOME/.codex}/skills/map-theorem-dependencies/"
 ```
 
-The final TikZ production stage uses the companion `$thesis-figure-skill`. XeLaTeX and Poppler are recommended when compiling and visually checking PDF deliverables.
+The skill is self-contained: its bundled scripts validate TikZ coordinates and inspect PDF geometry without invoking another figure skill. XeLaTeX and Poppler are recommended for compilation and rendering; install the Python packages listed in `scripts/requirements.txt` when running the PDF overlap checker.
 
 ## Usage
 

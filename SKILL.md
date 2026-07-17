@@ -1,185 +1,176 @@
 ---
 name: map-theorem-dependencies
-description: Extract, verify, and visualize theorem-level logical dependencies from mathematical papers, theses, books, and LaTeX/Markdown/PDF projects. Use when Codex must build a dependency graph or proof roadmap for theorems, propositions, lemmas, and corollaries; distinguish direct proof inputs from implications, alternative proof routes, background results, and mere mentions; produce a reader-reviewable Mermaid proof skeleton; or deliver an evidence-backed publication-ready TikZ/PDF/PNG theorem dependency map.
+description: Extract, verify, audit, and visualize theorem-level logical dependencies from mathematical papers, theses, books, and LaTeX/Markdown/PDF projects. Use when Codex must build a proof roadmap for theorems, propositions, lemmas, and corollaries; distinguish direct inputs, technical inputs, implications, complementary parameter cases, alternatives, context, and mere mentions; produce an evidence-backed Mermaid skeleton; or deliver a standalone publication-ready TikZ/PDF/PNG theorem dependency map with its own compile and visual-QA workflow.
 ---
 
 # Map Theorem Dependencies
 
-Recover the mathematical proof architecture before drawing it. Treat every edge as a claim requiring local textual evidence, then use `$thesis-figure-skill` for TikZ design, compilation, and visual audit.
+Recover the proof architecture before drawing it. Treat every edge and every displayed conclusion as a claim requiring local source evidence. This skill is self-contained; do not require or invoke another figure skill for theorem-map production.
 
-## Required outputs
+## Outputs
 
 Produce these artifacts unless the user narrows the scope:
 
-1. `dependency-ledger.md` or `.csv`: every included result, exact identifier, source location, short statement, and role.
+1. `dependency-ledger.md` or `.csv`: exact result identifier, source location, concise statement, proof span, and role.
 2. `dependency-edges.csv`: source, target, relation, evidence location, evidence paraphrase, and confidence.
-3. `dependency-draft.md` or an in-conversation Mermaid diagram: a curated, readable main-proof skeleton for semantic and layout review.
-4. A standalone TikZ `.tex`, compiled vector `.pdf`, and rendered `.png` preview when the user requests a finished figure.
-5. `dependency-audit.md`: exclusions, grouped nodes, uncertain edges, numbering drift, and validation results.
+3. `dependency-draft.md` or an in-conversation Mermaid diagram: a curated proof skeleton for review.
+4. Standalone TikZ `.tex`, vector `.pdf`, and rendered `.png` when a finished figure is requested.
+5. `dependency-audit.md`: exclusions, grouping decisions, uncertainty, numbering drift, and validation results.
+6. `figure-qa.md` for a finished figure: page geometry, typography, semantic corrections, compiler checks, checker triage, and visual-review result.
 
-Do not draw an edge that cannot be traced to the ledger. Do not present a thematic association as a proof dependency.
+Never draw an edge that is absent from the edge ledger. Never present thematic proximity as proof dependence.
 
-## Workflow
+## 1. Establish the source hierarchy
 
-### 1. Establish the source hierarchy
+Inspect local material before searching elsewhere.
 
-Inspect the project locally before searching elsewhere.
-
-1. Locate the main assembly file, chapter order, included files, bibliography, manifest, and any existing roadmap or Leitfaden figure.
-2. Treat a manifest as a structural hint, not as an authoritative theorem inventory; verify it against the source files.
-3. Prefer proofread LaTeX or Markdown. For PDF-only sources, extract text with `pdftotext`, then render pages when symbols or numbering are ambiguous.
-4. Record translated/original numbering aliases when both exist.
+1. Locate the main assembly file, chapter order, included files, bibliography, manifests, and existing roadmaps.
+2. Treat manifests and introduction roadmaps as scope hints, not authoritative edge inventories.
+3. Prefer proofread LaTeX or Markdown. For PDF-only sources, run `pdftotext -layout`, then render ambiguous pages.
+4. Record original/translated numbering aliases.
+5. For a long PDF, optionally create a PIL contact sheet from low-resolution page renders for rapid structural orientation; use extracted text, not the contact sheet, as proof evidence.
 
 Use `rg --files` and `rg` first. Read [references/dependency-evidence.md](references/dependency-evidence.md) before extracting edges.
 
-### 2. Inventory theorem-like objects
+## 2. Inventory theorem-like objects
 
-Find theorem, proposition, lemma, corollary, definition, and named-result environments. Capture:
+Capture theorem, proposition, lemma, corollary, definition, and named-result environments:
 
 - stable ID and displayed number;
-- type and concise title or statement;
-- source file and line or PDF page;
+- exact source location;
+- short faithful statement;
 - proof span;
-- role: foundation, main bound, application construction, contradiction input, final conclusion, consequence, comparison, or context.
+- role: foundation, estimate, construction, gate, conclusion, consequence, comparison, or context.
 
-Use document assembly order to resolve numbering. Detect duplicate labels, aliases such as “Theorem C = Theorem 14.0.1,” and numbering drift between source, translation, and compiled output.
+Resolve numbering from document assembly order. Detect duplicate labels, aliases, and drift between source, translation, and compiled output.
 
-### 3. Extract evidence-backed edges
+## 3. Extract evidence-backed edges
 
-Read proofs and explicit cross-references, not only result statements. Classify each edge using exactly one primary relation:
+Read proofs and explicit cross-references, not only statements. Assign exactly one primary relation:
 
 - `direct`: the target proof explicitly invokes or logically requires the source;
-- `technical-input`: the source supplies an estimate, construction, dictionary, contour, denominator, or other enabling tool;
-- `implication`: the target is a stated corollary, specialization, limit, or generalization relation;
-- `alternative`: the source is one of several substitutable routes to the same gate or conclusion;
-- `context`: comparison or background only; normally keep it outside the main directed spine.
+- `technical-input`: the source supplies an estimate, construction, dictionary, denominator, or enabling device;
+- `implication`: stated corollary, specialization, limit, or generalization;
+- `complementary-case`: sources cover disjoint parameter ranges that must be combined;
+- `alternative`: genuinely substitutable proof routes;
+- `context`: comparison or background only; normally outside the main directed spine.
 
-Require file/line or PDF-page evidence for `direct`, `technical-input`, and `alternative`. Mark inference explicitly and lower confidence when a proof uses an unnamed result whose identity must be reconstructed.
+Require page/line evidence for `direct`, `technical-input`, `complementary-case`, and `alternative`. Mark reconstructed unnamed inputs as inferred and lower confidence.
 
-Never infer an edge merely because two results occur in adjacent chapters, share terminology, cite the same paper, appear together in an introduction, or coexist in a high-level roadmap.
+Do not infer an edge because two results are adjacent, share terminology, cite the same paper, or appear together in an introduction.
 
-### 4. Build the proof spine before styling
+## 4. Build and audit the proof spine
 
-Identify final conclusions first and work backward.
+Work backward from final conclusions.
 
-1. Recover each contradiction or closure gate.
-2. Separate construction branches from analytic or arithmetic bound branches.
-3. Preserve genuinely alternative proof routes instead of flattening them into one chain.
-4. Group low-level lemmas only when they serve the same function and no later edge needs an individual lemma.
-5. Put results that do not participate in selected main proofs into a separate context band.
-6. If the graph is too dense, deliver a complete ledger plus a curated main-proof graph; never silently discard nodes.
+1. Recover closure, contradiction, and case-split gates.
+2. Separate dynamical, analytic, arithmetic, and construction branches.
+3. Preserve complementary parameter ranges and true alternatives as different relations.
+4. Group low-level lemmas only when they serve the same function and no later edge needs an individual member.
+5. Put unused background results in a context band.
+6. If the complete graph is too dense, keep the complete ledger and draw a curated main-proof graph; document every exclusion.
 
-Run semantic checks before drawing:
+Before drawing, verify:
 
-- every main conclusion has an incoming proof path;
-- every non-context node reaches a selected conclusion or labeled intermediate result;
-- alternative routes converge at a named gate;
-- no directed cycle exists unless the document truly contains equivalence;
-- each edge direction reads “source is used to establish target.”
+- every selected conclusion has an incoming path;
+- every non-context node reaches a selected conclusion or named gate;
+- no unsupported shortcut edge replaces a multi-step argument;
+- no directed cycle exists unless the source states an equivalence;
+- each arrow reads “source is used to establish target.”
 
-### 5. Draft the reviewed proof skeleton in Mermaid
+## 5. Verify visible conclusions
 
-Create the Mermaid graph before publication typesetting. Treat it as the semantic and spatial prototype, not as disposable scaffolding.
+Re-open the original statement before writing any key node. Do not rely on an introduction paraphrase when the formal theorem is available.
 
-1. Show the curated main proof first; keep the complete inventory in the ledger.
-2. Use subgraphs for genuine proof modules, not merely chapter boundaries.
-3. Give every visible module a reader-facing full name. Never expose internal IDs such as `F`, `APP`, or `ALG`. Expand a standard acronym at first appearance, for example `Gross–Kohnen–Zagier (GKZ)`.
-4. Keep node labels short but mathematical: exact result type and number plus a faithful content phrase.
-5. Express shared foundations by branching from the common result. Do not draw a module-to-module arrow unless a theorem in the first module is actually used in the second.
-6. Preserve parallel branches and whitespace. Avoid forcing a naturally branching graph into uniform columns.
-7. In an interactive task, present the Mermaid draft for reader feedback before committing to TikZ when the user has not already approved a layout.
+For every highlighted theorem or corollary, check:
 
-The reviewed Mermaid geometry is a layout contract for the finished figure: preserve its relative placement, branch direction, grouping, and visual breathing room unless a concrete rendering defect requires a change.
+- quantifiers and existence statements;
+- hypotheses, including regularity, zero-mean, irrationality, ergodicity, and parameter ranges;
+- normalization factors and residue-class restrictions;
+- uniformity clauses;
+- whether nonconvergence, failure of equidistribution, or failure of an orthogonality property is the actual conclusion.
 
-### 6. Write the figure design brief
+Use the source language for theorem/proposition/lemma text unless the user requests translation. Localize Section-stage headings only if useful. Bold result identifiers; bold only genuinely key conclusions. Keep formulas at normal math weight.
 
-Materialize the design brief before editing TikZ. State:
+## 6. Draft the Mermaid proof skeleton
 
-- domain and terminology policy;
-- selected result scope;
-- logical flow direction;
-- zones and semantic roles;
-- hero structure remembered after five seconds;
-- edge-to-style mapping;
-- rail and junction strategy;
-- grouping and context-band policy;
-- page size and smallest allowed font;
-- likely congestion points.
+Create Mermaid before publication typesetting unless the user has already approved a layout.
 
-Choose the canvas after seeing the Mermaid topology. Prefer a wide custom vector canvas for a wide graph; do not compress it into A4 merely because the deliverable is a PDF. For a genuinely four-stage linear architecture, start from [assets/theorem-dependency-four-zone.tex](assets/theorem-dependency-four-zone.tex). Use it only when the topology matches and no reviewed draft establishes a better layout.
+1. Show the curated main proof; keep completeness in the ledger.
+2. Use subgraphs for proof modules, not merely chapter boundaries.
+3. Use exact result type and number plus a short mathematical phrase.
+4. Expand visible acronyms at first use.
+5. Branch shared inputs explicitly.
+6. Preserve parallel branches and whitespace.
+7. Label complementary cases differently from alternatives.
 
-### 7. Draw with the companion figure skill
+Treat reviewed Mermaid geometry as a layout contract for TikZ.
 
-Announce and use `$thesis-figure-skill` for the visual production phase. Follow its current rules instead of copying them here.
+## 7. Design and draw the theorem map
 
-Preserve this semantic encoding unless the user requests another:
+For a finished figure, read [references/theorem-map-figure-production.md](references/theorem-map-figure-production.md) and write a short design brief before editing TikZ.
 
-- solid dark arrow: direct proof dependency;
+Use this semantic encoding unless the user requests another:
+
+- solid dark arrow: direct dependency;
 - thin gray arrow: technical input;
-- emphasized dashed or double-dashed colored arrow: alternative route;
-- dotted gray arrow: implication, specialization, or generalization;
-- separate low-saturation band: context not used in the main proof.
+- dashed colored arrow: complementary case or alternative, named in the legend;
+- dotted gray arrow: implication or specialization;
+- low-saturation neutral band: context.
 
-Prefer functional color zones over coloring by theorem type. A theorem, proposition, lemma, and corollary in the same module may share a color; their formal kind must remain explicit in the text. Use a neutral gray-blue treatment for technical inputs and the strongest border/fill treatment for branch conclusions. Include a compact box-color legend so readers do not infer that colors encode result type.
+Prefer functional color zones over theorem-type colors. Keep formal result kinds explicit in text. Use long dedicated rails for cross-zone edges. Merge several prerequisites at a visible gate when that gate is mathematically justified.
 
-Apply emphasis consistently:
+Start from [assets/theorem-dependency-four-zone.tex](assets/theorem-dependency-four-zone.tex) only when the topology is genuinely a four-stage top-to-bottom architecture. Otherwise preserve the reviewed Mermaid layout.
 
-- bold the identifier line for branch conclusions and results identified with an introduction-level theorem;
-- keep explanatory text at regular weight;
-- use `=` only for numbering aliases or literally identical results;
-- use `\Rightarrow` when one result implies another rather than being the same numbered result;
-- do not bold an ordinary intermediate result merely because it has two nearby references.
+Do not print workflow notes, provenance chatter, or semantic-audit language inside the figure. A subtitle is off by default; include one only when it adds mathematical information not already present in the title or legend.
 
-Preserve the approved Mermaid layout. Increase the canvas or reroute rails before shrinking fonts or collapsing whitespace.
+## 8. Compile and visually validate
 
-Keep production language out of the finished figure. Do not print notes such as “preserves the Mermaid layout,” “semantic audit,” “AI generated,” or other workflow commentary. Put audit details in `dependency-audit.md`. If provenance is useful, use a neutral date label such as `制作时间：YYYY-MM-DD` or a conventional figure caption.
+Resolve `SKILL_ROOT` to the directory containing this `SKILL.md`. Run bundled scripts by absolute path; do not assume the project working directory is the skill directory and do not depend on another skill’s files:
 
-For dense graphs, route long cross-zone edges on dedicated rails. Merge multiple prerequisite branches at visible junctions before entering a conclusion. Do not let an edge pass through an unrelated node or label.
+```powershell
+python "$SKILL_ROOT/scripts/tikz-validator.py" figure.tex
+xelatex -no-pdf -interaction=nonstopmode -halt-on-error figure.tex
+xdvipdfmx -o figure.pdf figure.xdv
+pdftoppm -png -r 180 -singlefile figure.pdf figure-preview
+pdfinfo figure.pdf
+python "$SKILL_ROOT/scripts/pdf-overlap-checker.py" figure.pdf --json
+```
 
-### 8. Validate semantics and rendering
+Before the overlap checker, verify `pdfplumber` and PyMuPDF (`fitz`) in the selected interpreter. If missing, prefer a configured workspace Python that already provides them. Otherwise request approval, then install from `$SKILL_ROOT/scripts/requirements.txt`; never silently skip the missing geometry checks. Adapt executable paths to the environment. On Windows, prefer the project’s established XeLaTeX/XDVIPDFMX workflow.
 
-Perform both audits; one cannot replace the other.
+Inspect the LaTeX log for `Overfull`, `Underfull`, `Missing character`, and font substitution warnings. Logs do not detect TikZ node overlap reliably; always inspect the rendered PNG.
 
-#### Semantic audit
+After every material layout change:
 
-- Re-open source evidence for every main-spine edge.
-- Check theorem numbers, aliases, arrow directions, and grouped labels.
-- Distinguish “used in proof” from “related to” in the legend and audit.
-- List all uncertain or inferred edges rather than silently upgrading them.
-- Verify that a high-level roadmap guided scope only and did not create unsupported theorem-level edges.
+1. rerun the coordinate validator;
+2. compile the vector PDF;
+3. render a whole-page PNG;
+4. inspect title, legend, stage headers, node borders, formulas, routes, and page boundaries;
+5. triage overlap-checker output against the PNG;
+6. iterate until no real blocker remains.
 
-#### Visual audit
+Known checker false positives include integral signs touching their limits and simultaneous subscript/superscript glyph boxes. Record the triage; never dismiss a report without viewing the exact region.
 
-Use the complete compile, render, and review loop required by `$thesis-figure-skill`. In addition, inspect:
-
-- long labels touching zone or page boundaries;
-- routes crossing intermediate theorem boxes;
-- alternative routes forming an unreadable knot;
-- visual arrow direction opposite to logical dependency;
-- final theorems receiving parallel lines without a clear junction;
-- contextual results appearing to feed the main proof;
-- theorem numbers unreadable after whole-page scaling.
-- unexplained abbreviations or internal module IDs in visible text;
-- box colors that lack a legend or appear to encode theorem type accidentally;
-- inconsistent bolding of analogous conclusion or alias nodes;
-- process commentary that belongs in the audit rather than the published figure.
-
-Fix routing and spatial allocation before reducing font size. Recompile and inspect the PNG after each routing change.
+For dense or original layouts, obtain independent geometry, semantic, text, and aesthetic reviews when subagents are available. Give reviewers the raw current artifact, not the intended diagnosis. Rerun review after material fixes.
 
 ## Quality gates
 
 Do not claim completion until all are true:
 
-- Every included edge has evidence and a relation class.
-- Every theorem number is checked against its rendered source.
-- Main proof paths and alternative routes are visually distinguishable.
-- The Mermaid skeleton was reviewed or explicitly used as the layout reference.
-- Excluded and grouped results are documented.
-- Visible abbreviations are expanded, box-color semantics are explained, and emphasis rules are consistent.
-- TikZ compiles without missing characters or overflow warnings.
-- PDF is nonzero, opens normally, and has the expected page count.
-- PNG inspection confirms readable type, unobstructed arrows, and clear hierarchy.
+- every visible edge has evidence and a relation class;
+- every highlighted conclusion was checked against the original statement;
+- theorem numbering and aliases match the rendered source;
+- Mermaid or an equivalent reviewed skeleton governed the layout;
+- exclusions and grouped nodes are documented;
+- Section headers align and are unobstructed;
+- theorem identifiers and key conclusions use consistent emphasis;
+- the smallest text remains readable at intended print size;
+- TikZ compiles without missing characters or overflow warnings;
+- the PDF is nonzero, opens normally, has the expected page size/count, and remains vector;
+- PNG inspection confirms no real overlap, clipping, route-through-text, or misleading empty region;
+- the final result and its evidence ledger agree.
 
 ## Scope discipline
 
-When evidence is incomplete, deliver a partial graph with explicit gaps. Never manufacture a dependency to make the diagram connected. When the user requests only analysis, stop after the ledger and graph specification; do not create files unless asked.
+When evidence is incomplete, deliver a partial graph with explicit gaps. Never manufacture connectivity. When the user requests only analysis, stop after the ledger and graph specification; do not create figure files unless asked.

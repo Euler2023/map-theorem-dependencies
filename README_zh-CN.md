@@ -69,11 +69,11 @@
 git clone https://github.com/Euler2023/map-theorem-dependencies.git
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills/map-theorem-dependencies"
 cp map-theorem-dependencies/SKILL.md "${CODEX_HOME:-$HOME/.codex}/skills/map-theorem-dependencies/"
-cp -R map-theorem-dependencies/agents map-theorem-dependencies/assets map-theorem-dependencies/references \
+cp -R map-theorem-dependencies/agents map-theorem-dependencies/assets map-theorem-dependencies/references map-theorem-dependencies/scripts \
   "${CODEX_HOME:-$HOME/.codex}/skills/map-theorem-dependencies/"
 ```
 
-最终 TikZ 制作阶段会调用配套的 `$thesis-figure-skill`。如需编译并检查 PDF，建议安装 XeLaTeX 和 Poppler。
+本技能已经自包含：内置脚本可校验 TikZ 坐标并检查 PDF 几何关系，无需调用其他制图技能。编译与渲染建议安装 XeLaTeX 和 Poppler；运行 PDF 重叠检查器时，请安装 `scripts/requirements.txt` 中列出的 Python 包。
 
 ## 使用示例
 
