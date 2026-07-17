@@ -29,6 +29,17 @@ Inspect local material before searching elsewhere.
 3. Prefer proofread LaTeX or Markdown. For PDF-only sources, run `pdftotext -layout`, then render ambiguous pages.
 4. Record original/translated numbering aliases.
 5. For a long PDF, optionally create a PIL contact sheet from low-resolution page renders for rapid structural orientation; use extracted text, not the contact sheet, as proof evidence.
+6. When embedded raster figures may help identify structure or inspect source artwork, use Poppler's `pdfimages` workflow:
+
+   ```bash
+   command -v pdfimages
+   pdfimages -list source.pdf
+   mkdir -p extracted-images
+   pdfimages -all source.pdf extracted-images/image
+   # For a long source, restrict extraction with: -f FIRST_PAGE -l LAST_PAGE
+   ```
+
+   `pdfimages` comes from Poppler (commonly the `poppler-utils` system package), not TeX Live. It extracts embedded raster images at their stored resolution; it does not render complete pages or reliably recover vector line art, text, or TikZ. Use `pdftoppm` for whole-page PNG renders. Treat extracted images as orientation or visual-verification aids, never as sole evidence for theorem statements or dependency edges.
 
 Use `rg --files` and `rg` first. Read [references/dependency-evidence.md](references/dependency-evidence.md) before extracting edges.
 
