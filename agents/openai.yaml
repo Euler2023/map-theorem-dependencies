@@ -1,0 +1,4 @@
+interface:
+  display_name: "数学定理依赖图"
+  short_description: "从数学论文项目提取、核验并绘制定理命题之间的逻辑依赖关系"
+  default_prompt: "Use $map-theorem-dependencies to extract evidence-backed theorem dependencies, present a readable Mermaid proof skeleton, and turn the approved layout into a publication-ready TikZ map."
