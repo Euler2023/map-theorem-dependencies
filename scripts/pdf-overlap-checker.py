@@ -6,9 +6,8 @@ PDF 重叠检测器 — 编译后自动检测渲染结果中的多种几何问�
     python3 pdf-overlap-checker.py <file.pdf>            # 人读文本输出
     python3 pdf-overlap-checker.py <file.pdf> --json     # 结构化输出供 sub-agent 消费
 
-7 类检测（5 基础 + 2 candidate-triage）：
-  基础 5 类（直接 fix）：
-    text-overlap        两段文字 bbox 相交（IoU > 0.03）            [ERROR]
+几何检测产生待目视复核的候选，不推断字形墨迹是否真的相交：
+    text-overlap        两段文字 bbox 相交（IoU > 0.03）            [WARN, candidate]
     text-overflow       文字溢出其容器矩形                          [ERROR/WARN]
     off-center          容器内容偏离中心 / 顶部留白过多              [WARN]
     text-line           文字被水平/垂直线穿过                        [WARN]
@@ -19,12 +18,14 @@ PDF 重叠检测器 — 编译后自动检测渲染结果中的多种几何问�
 
 后两类需 PyMuPDF（pip install pymupdf）。缺失时会打印 ERROR 并退出 — 不静默跳过。
 
-输出: 逐条报告问题，无问题则输出 PASS
-退出码: 0=全部通过, 1=有警告, 2=有错误
+JSON保留全部候选及页码/bbox，附分类及局部复核分组；人读输出每类默认至多8项。
+坐标单位为PDF point，原点在页面左上角，bbox=[x0,top,x1,bottom]。
+退出码: 0=未发现候选（仍需目视）, 1=有待复核项, 2=有错误或检测不完整。
 """
 
 import sys
-from dataclasses import dataclass
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -34,6 +35,7 @@ class BBox:
     x1: float
     bottom: float
     label: str = ""
+    path_id: int = -1  # real drawing path when available; -1 for text/fallback
 
     @property
     def width(self):
@@ -57,6 +59,35 @@ class Issue:
     level: str  # ERROR, WARN
     category: str
     message: str
+    page: int | None = None  # one-based PDF page
+    bbox: list[float] | None = None
+    related_bboxes: list[dict] = field(default_factory=list)
+    candidate: bool = True
+    review_status: str = "needs-visual-review"
+
+
+def issue_location(*boxes: BBox) -> dict:
+    """Retain the exact local geometry needed to render/inspect a candidate."""
+    return {
+        "bbox": [min(b.x0 for b in boxes), min(b.top for b in boxes),
+                 max(b.x1 for b in boxes), max(b.bottom for b in boxes)],
+        "related_bboxes": [
+            {"label": b.label, "bbox": [b.x0, b.top, b.x1, b.bottom],
+             "path_id": b.path_id}
+            for b in boxes
+        ],
+    }
+
+
+class IncompleteCheck(RuntimeError):
+    """A required dependency/check failed; never report an automatic pass."""
+
+    def __init__(self, message, partial_issues=None, failed_page=None,
+                 uncompleted_pages=None):
+        super().__init__(message)
+        self.partial_issues = list(partial_issues or [])
+        self.failed_page = failed_page
+        self.uncompleted_pages = list(uncompleted_pages or [])
 
 
 def bbox_overlap(a: BBox, b: BBox) -> tuple[float, float]:
@@ -95,7 +126,7 @@ def gap_between(a: BBox, b: BBox) -> float:
 
 def is_same_text(a: BBox, b: BBox) -> bool:
     """Check if two words are essentially the same element (overlaid intentionally)."""
-    return (abs(a.x0 - b.x0) < 1.0 and abs(a.top - b.top) < 1.0 and
+    return (a.label == b.label and abs(a.x0 - b.x0) < 1.0 and abs(a.top - b.top) < 1.0 and
             abs(a.x1 - b.x1) < 1.0 and abs(a.bottom - b.bottom) < 1.0)
 
 
@@ -136,7 +167,6 @@ def check_word_overlaps(words: list[BBox]) -> list[Issue]:
     MIN_GAP = 1.5  # minimum gap in points
     PROXIMITY = 50.0  # compare words within 50pt (increased from 30)
 
-    checked = set()
     for i in range(len(words)):
         for j in range(i + 1, len(words)):
             a, b = words[i], words[j]
@@ -151,35 +181,21 @@ def check_word_overlaps(words: list[BBox]) -> list[Issue]:
             if is_same_text(a, b):
                 continue
 
-            # Skip single-char math subscripts (both must be tiny single chars)
-            if a.width < 5 and b.width < 5 and len(a.label) <= 1 and len(b.label) <= 1:
-                continue
-
-            pair_key = (min(a.label, b.label), max(a.label, b.label))
-            if pair_key in checked:
-                continue
-
             ox, oy = bbox_overlap(a, b)
             if ox > 0 and oy > 0:
-                # Skip intra-word kerning false positives:
-                # pdfplumber occasionally splits a single tightly-kerned word
-                # (e.g. "Av" in "FedAvg") into adjacent fragments whose bboxes
-                # have <2pt horizontal overlap while sharing >=90% of y-range.
-                # Treat these as a single word, not as colliding labels.
-                y_share = min(a.bottom, b.bottom) - max(a.top, b.top)
-                y_min_h = min(a.height, b.height)
-                if y_min_h > 0 and y_share / y_min_h >= 0.9 and ox < 2.0:
-                    continue
-
                 iou = bbox_iou(a, b)
                 if iou > 0.03:
+                    # Word boxes combine baselines and scripts; overlap alone
+                    # cannot prove ink collision (fractions, limits, kerning).
+                    # Keep EVERY candidate, including tiny glyphs. Do not use
+                    # a mathematical-symbol whitelist to suppress real defects.
                     issues.append(Issue(
-                        level="ERROR",
+                        level="WARN",
                         category="text-overlap",
-                        message=f"文字重叠: \"{a.label}\" 和 \"{b.label}\" "
-                                f"IoU={iou:.3f} (重叠 {ox:.1f}×{oy:.1f}pt)"
+                        message=f"文字框交叠候选: \"{a.label}\" 和 \"{b.label}\" "
+                                f"IoU={iou:.3f} (交叠 {ox:.1f}×{oy:.1f}pt；需看字形)",
+                        **issue_location(a, b),
                     ))
-                    checked.add(pair_key)
             else:
                 # Check tight spacing only for truly adjacent elements
                 g = gap_between(a, b)
@@ -193,9 +209,9 @@ def check_word_overlaps(words: list[BBox]) -> list[Issue]:
                             level="WARN",
                             category="text-tight",
                             message=f"文字间距过小: \"{a.label}\" 和 \"{b.label}\" "
-                                    f"间距仅 {g:.1f}pt"
+                                    f"间距仅 {g:.1f}pt",
+                            **issue_location(a, b),
                         ))
-                        checked.add(pair_key)
 
     return issues
 
@@ -232,7 +248,8 @@ def check_text_overflow(words: list[BBox], rects: list[BBox]) -> list[Issue]:
             issues.append(Issue(
                 level=level,
                 category="text-overflow",
-                message=f"文字溢出容器: \"{word.label}\" {', '.join(overflows)}"
+                message=f"文字溢出容器: \"{word.label}\" {', '.join(overflows)}",
+                **issue_location(word, container),
             ))
 
     return issues
@@ -273,7 +290,8 @@ def check_content_balance(words: list[BBox], rects: list[BBox]) -> list[Issue]:
                     category="off-center",
                     message=f"内容偏移: 容器({rect.width:.0f}×{rect.height:.0f}pt) "
                             f"左margin={left_margin:.0f}pt 右margin={right_margin:.0f}pt "
-                            f"(比值 {margin_ratio:.1f}:1)"
+                            f"(比值 {margin_ratio:.1f}:1)",
+                    **issue_location(rect),
                 ))
 
         # Check top-heavy (title bar takes too much space)
@@ -285,7 +303,8 @@ def check_content_balance(words: list[BBox], rects: list[BBox]) -> list[Issue]:
                     level="WARN",
                     category="top-heavy",
                     message=f"上方留白过多: 容器高 {rect.height:.0f}pt, "
-                            f"上方留白 {top_margin:.0f}pt ({top_margin/rect.height*100:.0f}%)"
+                            f"上方留白 {top_margin:.0f}pt ({top_margin/rect.height*100:.0f}%)",
+                    **issue_location(rect),
                 ))
 
     return issues
@@ -323,7 +342,8 @@ def check_text_line_overlap(words: list[BBox], lines: list[BBox]) -> list[Issue]
                             category="text-line",
                             message=f"线穿过文字: \"{word.label}\" "
                                     f"(水平线 y={line_y:.0f} 穿过文字区域 "
-                                    f"y={word.top:.0f}-{word.bottom:.0f})"
+                                    f"y={word.top:.0f}-{word.bottom:.0f})",
+                            **issue_location(word, line),
                         ))
                 elif line_is_vertical:
                     line_x = (line.x0 + line.x1) / 2
@@ -333,7 +353,8 @@ def check_text_line_overlap(words: list[BBox], lines: list[BBox]) -> list[Issue]
                             category="text-line",
                             message=f"线穿过文字: \"{word.label}\" "
                                     f"(垂直线 x={line_x:.0f} 穿过文字区域 "
-                                    f"x={word.x0:.0f}-{word.x1:.0f})"
+                                    f"x={word.x0:.0f}-{word.x1:.0f})",
+                            **issue_location(word, line),
                         ))
     return issues
 
@@ -357,7 +378,6 @@ def segments_intersect(ax0, ay0, ax1, ay1, bx0, by0, bx1, by1) -> bool:
 def check_line_crossings(lines: list[BBox]) -> list[Issue]:
     """Detect lines crossing each other — messy connection areas."""
     issues = []
-    crossings = 0
     MIN_LENGTH = 15.0  # ignore tiny lines (box borders, ticks)
 
     # Filter to meaningful lines
@@ -372,16 +392,12 @@ def check_line_crossings(lines: list[BBox]) -> list[Issue]:
             a, b = real_lines[i], real_lines[j]
             if segments_intersect(a.x0, a.top, a.x1, a.bottom,
                                   b.x0, b.top, b.x1, b.bottom):
-                crossings += 1
-
-    if crossings > 0:
-        issues.append(Issue(
-            level="WARN",
-            category="line-crossing",
-            message=f"检测到 {crossings} 处连线交叉。"
-                    f"请确认每处交叉是否必要——"
-                    f"必要的保留，可避免的重新路由"
-        ))
+                issues.append(Issue(
+                    level="WARN",
+                    category="line-crossing",
+                    message="两条线段相交候选；请目视判断交点或汇合是否有意。",
+                    **issue_location(a, b),
+                ))
 
     return issues
 
@@ -443,6 +459,31 @@ def point_in_rect(x: float, y: float, rect: BBox, margin: float = -2.0) -> bool:
             rect.top - margin <= y <= rect.bottom + margin)
 
 
+def candidate_node_indices(rects: list[BBox], min_dim: float = 6) -> list[int]:
+    """Keep wide/shallow nodes; omit decoration and clear nested containers.
+
+    An absolute 140pt width cap excluded ordinary nodes on a large canvas.
+    A larger rectangle is treated as a container only when it fully encloses
+    a distinct, plausibly node-sized box occupying at least 5% of its area.
+    This is still a geometric heuristic, reported in coverage, not a semantic
+    proof that each retained shape is a theorem node.
+    """
+    candidates = []
+    for i, rect in enumerate(rects):
+        if min(rect.width, rect.height) < min_dim:
+            continue
+        area = rect.width * rect.height
+        has_child = any(
+            j != i and child.width >= 30 and child.height >= 15
+            and .05 * area <= child.width * child.height <= .85 * area
+            and is_inside(child, rect, margin=-1)
+            for j, child in enumerate(rects)
+        )
+        if not has_child:
+            candidates.append(i)
+    return candidates
+
+
 def check_line_through_nodes(
     segments: list[Segment],
     rects: list[BBox],
@@ -460,33 +501,18 @@ def check_line_through_nodes(
           the interior, not just touching at endpoints) → flag.
 
     Filters:
-      - Skip large rects (page-level zones): width > 140 OR height > 90.
+      - Skip clear nested containers; retain wide or shallow nodes.
       - Skip tiny rects (decorations): width < 6 OR height < 6.
       - Skip very short segments: length < 15pt (likely box borders themselves).
-      - Cluster suppression: if a rect is crossed by 4+ distinct segments,
-        it's likely a convergence node — drop the cluster.
+      - Multiple hits on one rect remain candidates; never erase a cluster.
     """
     if rect_path_ids is None:
         rect_path_ids = [-1] * len(rects)
     raw_hits = []     # collect first, cluster-filter second
     flagged = set()
 
-    # A "node" rect must be plausibly box-shaped *and* small enough that a line
-    # passing through its interior is suspicious.  Zone backgrounds (large
-    # filled rectangles that hold multiple nodes) are intentionally crossed by
-    # internal connections, so we must exclude them or the detector explodes.
-    MAX_W = 140      # ~5cm — anything wider is a zone, not a node
-    MAX_H = 90       # ~3cm
-    MAX_AREA = 12500 # pt² — full 140×90 box allowed. Hero boxes commonly
-                     # reach 4.4cm × 2.2cm (=7750pt²) so the prior 7500 cap
-                     # silently excluded Pedersen-sized heroes (fig97 bug).
-    MIN_DIM = 6      # below this is decoration / glyph artifact
-
     candidate_rects = [
-        (ri, r) for ri, r in enumerate(rects)
-        if MIN_DIM <= r.width <= MAX_W
-        and MIN_DIM <= r.height <= MAX_H
-        and r.width * r.height <= MAX_AREA
+        (ri, rects[ri]) for ri in candidate_node_indices(rects)
     ]
 
     for seg in segments:
@@ -564,21 +590,23 @@ def check_line_through_nodes(
                         # somewhere in the middle.  Skip: this is the normal
                         # "anchor=center" / "label points inward" case.
                         continue
-            # Spine filter: a vertical line on the rect's vertical centerline
+            # A vertical line on the rect's vertical centerline
             # (±3pt) and much longer than the rect's height is a designed
             # "spine" — e.g. a sequence-diagram lifeline passing through its
             # actor header box, or a swimlane axis crossing a phase label.
             # Same for horizontal lines on the rect's horizontal centerline.
+            # Keep it as WARN candidate: a geometric axis guess cannot establish
+            # that the crossing was intentional.
             is_vertical = abs(seg.x1 - seg.x0) < 1.0
             is_horizontal = abs(seg.y1 - seg.y0) < 1.0
             rect_cx = (rect.x0 + rect.x1) / 2
             rect_cy = (rect.top + rect.bottom) / 2
-            if is_vertical and abs(seg.x0 - rect_cx) <= 3 \
-                    and seg.length() > rect.height * 3:
-                continue
-            if is_horizontal and abs(seg.y0 - rect_cy) <= 3 \
-                    and seg.length() > rect.width * 3:
-                continue
+            possible_spine = (
+                (is_vertical and abs(seg.x0 - rect_cx) <= 3
+                 and seg.length() > rect.height * 3)
+                or (is_horizontal and abs(seg.y0 - rect_cy) <= 3
+                    and seg.length() > rect.width * 3)
+            )
             clip = liang_barsky_clip(seg, rect)
             if clip is None:
                 continue
@@ -604,23 +632,19 @@ def check_line_through_nodes(
             flagged.add(key)
             dash_tag = "dashed " if seg.dashed else ""
             raw_hits.append((ri, Issue(
-                level="ERROR",
+                level="WARN" if possible_spine else "ERROR",
                 category="line-through-node",
                 message=f"{dash_tag}线穿过节点: 从({seg.x0:.0f},{seg.y0:.0f})→"
                         f"({seg.x1:.0f},{seg.y1:.0f}) 穿过 "
                         f"rect[{rect.x0:.0f},{rect.top:.0f},{rect.x1:.0f},{rect.bottom:.0f}] "
                         f"内部 (crossing {crossing_length:.0f}pt)"
+                        + ("；可能是有意的中心轴，仍需复核" if possible_spine else ""),
+                **issue_location(rect, BBox(min(seg.x0, seg.x1), min(seg.y0, seg.y1),
+                                          max(seg.x0, seg.x1), max(seg.y0, seg.y1), "segment",
+                                          path_id=seg.path_id)),
             )))
 
-    # Cluster suppression: if a single rect is crossed by ≥4 distinct segments,
-    # it is almost certainly a convergence node (e.g. CA3/CA1 pyramidal neuron
-    # in a hippocampal network) or a misclassified zone — drop all hits on it.
-    # Real "line accidentally crossing a node" bugs hit 1-3 segments per rect.
-    CLUSTER_THRESHOLD = 4
-    hits_per_rect: dict[int, int] = {}
-    for ri, _ in raw_hits:
-        hits_per_rect[ri] = hits_per_rect.get(ri, 0) + 1
-    return [iss for ri, iss in raw_hits if hits_per_rect[ri] < CLUSTER_THRESHOLD]
+    return [iss for _ri, iss in raw_hits]
 
 
 def check_node_overlap(
@@ -631,7 +655,7 @@ def check_node_overlap(
     overlap, not parent-child containment).
 
     Filters:
-      - Both rects must be node-sized (6-140pt × 6-90pt).
+      - Decorations and clear nested containers are excluded; no width cap.
       - Skip pairs from the same drawing path (same node).
       - Skip pairs where one fully contains the other (zone-in-zone, panel
         holding a child node).
@@ -644,13 +668,11 @@ def check_node_overlap(
     # would generate spurious overlaps. A real node is at least ~10pt on its
     # short side. Y-fork junction dots (~4-5pt) are intentionally excluded —
     # overlap detection at that scale is noise.
-    MIN_DIM, MAX_W, MAX_H = 10, 140, 90
     MIN_IOU = 0.05
 
     nodes = [
-        (i, r, rect_path_ids[i])
-        for i, r in enumerate(rects)
-        if MIN_DIM <= r.width <= MAX_W and MIN_DIM <= r.height <= MAX_H
+        (i, rects[i], rect_path_ids[i])
+        for i in candidate_node_indices(rects, min_dim=10)
     ]
 
     seen_pairs = set()
@@ -664,16 +686,17 @@ def check_node_overlap(
             if abs(a.x0 - b.x0) < 1 and abs(a.x1 - b.x1) < 1 \
                     and abs(a.top - b.top) < 1 and abs(a.bottom - b.bottom) < 1:
                 continue
-            # Drop-shadow pattern: TikZ `drop shadow` style draws the same box
+            # Possible drop-shadow pattern: TikZ `drop shadow` draws the same box
             # twice — a grey shadow offset by ~2-3pt + the main fill rect.
             # Two rects of nearly identical W/H whose centers differ by ≤5pt
-            # in both axes is overwhelmingly drop shadow, not a real overlap.
+            # in both axes may be a shadow; retain rather than silently skip it.
+            possible_shadow = False
             if abs(a.width - b.width) < 3 and abs(a.height - b.height) < 3:
                 a_cx, a_cy = (a.x0 + a.x1) / 2, (a.top + a.bottom) / 2
                 b_cx, b_cy = (b.x0 + b.x1) / 2, (b.top + b.bottom) / 2
                 if abs(a_cx - b_cx) <= 5 and abs(a_cy - b_cy) <= 5 \
                         and (abs(a_cx - b_cx) > 0.5 or abs(a_cy - b_cy) > 0.5):
-                    continue  # drop shadow twin
+                    possible_shadow = True  # retain for visual triage
             # Parent-child? one fully inside the other → OK
             if is_inside(a, b, margin=2) or is_inside(b, a, margin=2):
                 continue
@@ -687,42 +710,37 @@ def check_node_overlap(
             seen_pairs.add(key)
             ox, oy = bbox_overlap(a, b)
             issues.append(Issue(
-                level="ERROR",
+                level="WARN" if possible_shadow else "ERROR",
                 category="node-overlap",
                 message=f"节点重叠: rect[{a.x0:.0f},{a.top:.0f},{a.x1:.0f},{a.bottom:.0f}] "
                         f"vs rect[{b.x0:.0f},{b.top:.0f},{b.x1:.0f},{b.bottom:.0f}] "
                         f"IoU={iou:.3f} (重叠 {ox:.1f}×{oy:.1f}pt)"
+                        + ("；可能是投影阴影，仍需复核" if possible_shadow else ""),
+                **issue_location(a, b),
             ))
     return issues
 
 
-def extract_pymupdf_geometry(filepath: str):
+def extract_pymupdf_geometry(filepath: str, page_index: int = 0):
     """Use PyMuPDF to extract real line endpoints + curves + filled rects.
 
     Returns (segments, curves_as_bboxes, rects_filled, rects_stroke,
               rects_filled_path_id).  Each Segment carries its own
               `path_id` so callers can skip self-comparisons (a node's
               outline segments vs the same node's bbox rect).
-    Falls back to (None, None, None, None, None) if PyMuPDF unavailable.
+    Raises IncompleteCheck if PyMuPDF is unavailable; never silently skip.
     """
     try:
         import fitz
     except ImportError:
-        # LOUD failure — do not silently skip line-through-node + node-overlap.
-        # Sub-agents reading the report would otherwise believe these checks
-        # passed when they were never run.
-        print(
-            "ERROR: pymupdf 未安装。line-through-node + node-overlap 两类检测"
-            "将不会运行。\n"
-            "  安装: pip install pymupdf",
-            file=sys.stderr,
-        )
-        return None, None, None, None, None
+        raise IncompleteCheck(
+            "缺少 pymupdf (fitz)；line-through-node / node-overlap 未运行。"
+        ) from None
 
     pdf = fitz.open(filepath)
     if pdf.page_count == 0:
         return [], [], [], [], []
-    page = pdf[0]
+    page = pdf[page_index]
     drawings = page.get_drawings()
 
     segments: list[Segment] = []
@@ -735,7 +753,10 @@ def extract_pymupdf_geometry(filepath: str):
     rects_filled_path_id: list[int] = []  # parallel to rects_filled
 
     for pid, d in enumerate(drawings):
-        is_dashed = bool(d.get("dashes"))
+        dashes = d.get("dashes")
+        # PyMuPDF represents a SOLID stroke as the nonempty string "[] 0".
+        is_dashed = (bool(dashes.split("]", 1)[0].lstrip(" ["))
+                     if isinstance(dashes, str) else bool(dashes))
         stroke = d.get("color")
         fill = d.get("fill")
         # Track this path's overall bbox so we can register a *filled* path
@@ -777,7 +798,8 @@ def extract_pymupdf_geometry(filepath: str):
                             ))
             elif op == "re":
                 r = it[1]
-                bb = BBox(x0=r.x0, top=r.y0, x1=r.x1, bottom=r.y1, label="rect")
+                bb = BBox(x0=r.x0, top=r.y0, x1=r.x1, bottom=r.y1,
+                          label="rect", path_id=pid)
                 if fill is not None:
                     rects_filled.append(bb)
                     rects_filled_path_id.append(pid)
@@ -797,7 +819,7 @@ def extract_pymupdf_geometry(filepath: str):
             # Skip degenerate (line-shaped) and page-sized fills.
             if w >= 4 and h >= 4 and not (w > 500 and h > 500):
                 rects_filled.append(BBox(
-                    x0=x0, top=y0, x1=x1, bottom=y1, label="filled-path"
+                    x0=x0, top=y0, x1=x1, bottom=y1, label="filled-path", path_id=pid
                 ))
                 rects_filled_path_id.append(pid)
 
@@ -805,20 +827,43 @@ def extract_pymupdf_geometry(filepath: str):
     return segments, curve_bboxes, rects_filled, rects_stroke, rects_filled_path_id
 
 
-def validate_pdf(filepath: str) -> list[Issue]:
+def merge_node_rectangles(filled, filled_path_ids, stroke, fallback):
+    """Union every rectangle source; a small fill must not hide stroke nodes.
+
+    Prefer real path IDs and deduplicate only geometrically coincident boxes.
+    Do not use a filled-versus-stroked either/or fallback.
+    """
+    merged, path_ids = [], []
+    candidates = (list(zip(filled, filled_path_ids))
+                  + [(r, r.path_id) for r in stroke]
+                  + [(r, -1) for r in fallback])
+    for rect, path_id in candidates:
+        duplicate = next((i for i, previous in enumerate(merged)
+                          if max(abs(rect.x0-previous.x0), abs(rect.top-previous.top),
+                                 abs(rect.x1-previous.x1), abs(rect.bottom-previous.bottom)) < .5), None)
+        if duplicate is None:
+            merged.append(rect)
+            path_ids.append(path_id)
+        elif path_ids[duplicate] < 0 <= path_id:
+            merged[duplicate] = rect
+            path_ids[duplicate] = path_id
+    return merged, path_ids
+
+
+def _validate_pdf_page(filepath: str, page_index: int = 0,
+                       coverage: list[dict] | None = None) -> list[Issue]:
     """Main validation: extract PDF elements and check for overlaps."""
     try:
         import pdfplumber
     except ImportError:
-        print("ERROR: pdfplumber 未安装。运行: pip install pdfplumber")
-        sys.exit(1)
+        raise IncompleteCheck("缺少 pdfplumber；文字与几何检查未完成。") from None
 
     pdf = pdfplumber.open(filepath)
     if not pdf.pages:
-        print("ERROR: PDF 没有页面")
-        sys.exit(1)
+        pdf.close()
+        raise IncompleteCheck("PDF 没有页面。")
 
-    page = pdf.pages[0]
+    page = pdf.pages[page_index]
 
     # Extract words with bounding boxes
     raw_words = page.extract_words(
@@ -903,76 +948,164 @@ def validate_pdf(filepath: str) -> list[Issue]:
 
     pdf.close()
 
-    # 6. Line-through-node (PyMuPDF segments + best-available rect set).
-    #
-    # PyMuPDF gives real line endpoints (pdfplumber only gives line bboxes, losing
-    # diagonal direction).  But many TikZ box-shaped nodes are drawn as 4-line
-    # paths rather than `re` operators, so `rects_filled` from PyMuPDF is often
-    # empty.  In that case fall back to pdfplumber's `rects` list (already
-    # extracted above as the `rects` local), which recognizes node-sized
-    # rectangles regardless of how they were drawn.
-    segments, _curves, rects_filled, _rects_stroke, rect_pids = extract_pymupdf_geometry(filepath)
+    # 6. Line-through-node: merge filled AND stroke-only nodes, with fallback
+    # rectangles supplementing rather than replacing either geometry source.
+    segments, _curves, rects_filled, rects_stroke, rect_pids = extract_pymupdf_geometry(filepath, page_index)
     if segments is not None:
-        if rects_filled:
-            node_rects = rects_filled
-            node_rect_pids = rect_pids
-        else:
-            node_rects = rects
-            node_rect_pids = [-1] * len(rects)  # pdfplumber rects have no path id
+        node_rects, node_rect_pids = merge_node_rectangles(
+            rects_filled, rect_pids, rects_stroke, rects)
+        if coverage is not None:
+            selected = set(candidate_node_indices(node_rects))
+            coverage.append({
+                "page": page_index + 1,
+                "filled_rect_count": len(rects_filled),
+                "stroke_rect_count": len(rects_stroke),
+                "merged_rect_count": len(node_rects),
+                "node_candidate_count": len(selected),
+                "excluded_rectangles": [
+                    {"bbox": [r.x0, r.top, r.x1, r.bottom],
+                     "reason": "decoration" if min(r.width, r.height) < 6 else "nested-container"}
+                    for ri, r in enumerate(node_rects) if ri not in selected
+                ],
+            })
         if node_rects:
             all_issues.extend(check_line_through_nodes(segments, node_rects, node_rect_pids))
             # 7. Node-vs-node geometric overlap (sibling intersection).
             all_issues.extend(check_node_overlap(node_rects, node_rect_pids))
 
+    for issue in all_issues:
+        issue.page = page_index + 1
     return all_issues
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("用法: python3 pdf-overlap-checker.py <file.pdf> [--json]")
-        sys.exit(1)
+def validate_pdf(filepath: str, coverage: list[dict] | None = None) -> list[Issue]:
+    """Run required checks on every page, or raise an incomplete-check error."""
+    try:
+        import fitz
+    except ImportError:
+        raise IncompleteCheck("缺少 pymupdf (fitz)；几何检测未运行。") from None
+    with fitz.open(filepath) as pdf:
+        page_count = pdf.page_count
+    if not page_count:
+        raise IncompleteCheck("PDF 没有页面。")
+    issues = []
+    for page_index in range(page_count):
+        try:
+            issues.extend(_validate_pdf_page(filepath, page_index, coverage))
+        except (IncompleteCheck, ImportError, OSError, ValueError, RuntimeError) as exc:
+            raise IncompleteCheck(
+                f"第{page_index+1}页检查中断；该页及后续页未完成: {exc}",
+                partial_issues=issues, failed_page=page_index+1,
+                uncompleted_pages=list(range(page_index+1, page_count+1)),
+            ) from exc
+    return issues
 
-    json_mode = "--json" in sys.argv
-    filepath = next(a for a in sys.argv[1:] if not a.startswith("--"))
-    issues = validate_pdf(filepath)
 
-    errors = [i for i in issues if i.level == "ERROR"]
-    warns = [i for i in issues if i.level == "WARN"]
-
-    if json_mode:
-        import json
-        out = {
-            "file": filepath,
-            "errors": [{"category": i.category, "message": i.message} for i in errors],
-            "warnings": [{"category": i.category, "message": i.message} for i in warns],
-            "summary": {"error_count": len(errors), "warning_count": len(warns)},
+def build_report(filepath: str, issues: list[Issue], coverage: list[dict],
+                 complete: bool = True) -> dict:
+    """Keep full findings; summarize nearby candidates without deleting them."""
+    groups = defaultdict(list)
+    records = []
+    for number, issue in enumerate(issues, 1):
+        record = {
+            "id": f"issue-{number:04d}",
+            "category": issue.category, "message": issue.message,
+            "page": issue.page, "bbox": issue.bbox,
+            "related_bboxes": issue.related_bboxes,
+            "candidate": issue.candidate, "review_status": issue.review_status,
+            "level": issue.level,
         }
-        print(json.dumps(out, ensure_ascii=False, indent=2))
-        sys.exit(2 if errors else (1 if warns else 0))
+        records.append(record)
+        if issue.bbox:
+            x0, y0, x1, y1 = issue.bbox
+            # One-inch spatial bins are review groups, not collision judgments.
+            key = (issue.page, issue.category, int((x0+x1)/144), int((y0+y1)/144))
+            groups[key].append(record)
+    review_groups = []
+    for (page, category, _x, _y), group in groups.items():
+        boxes = [r["bbox"] for r in group]
+        review_groups.append({
+            "page": page, "category": category, "count": len(group),
+            "bbox": [min(b[0] for b in boxes), min(b[1] for b in boxes),
+                     max(b[2] for b in boxes), max(b[3] for b in boxes)],
+            "issue_ids": [r["id"] for r in group],
+            "review_status": "needs-visual-review",
+        })
+    errors = [r for r in records if r["level"] == "ERROR"]
+    warns = [r for r in records if r["level"] == "WARN"]
+    return {
+        "file": filepath,
+        "status": ("incomplete" if not complete else
+                   "needs-visual-review" if records else "no-candidates-found"),
+        "visual_review_required": True,
+        "coordinate_system": "PDF points, top-left origin; bbox=[x0,top,x1,bottom]; page is one-based",
+        "errors": errors, "warnings": warns,
+        "review_groups": review_groups,
+        "coverage": {
+            "complete": complete, "pages_checked": len(coverage), "pages": coverage,
+            "limitations": [
+                "Text bounding boxes do not establish glyph-ink collisions; fractions, scripts and kerning require visual triage.",
+                "Node/container selection is geometric; exclusions and their boxes are listed per page.",
+                "Bezier paths use control-polygon approximations; this is not pixel-level rendering validation.",
+            ],
+        },
+        "summary": {
+            "error_count": len(errors), "warning_count": len(warns),
+            "candidate_count": sum(r["candidate"] for r in records),
+            "counts_by_category": dict(Counter(r["category"] for r in records)),
+            "review_group_count": len(review_groups),
+        },
+    }
 
-    if not issues:
-        print("✅ PASS — 未发现重叠问题")
-        sys.exit(0)
 
-    print(f"{'=' * 60}")
-    print(f"PDF 重叠检测报告: {filepath}")
-    print(f"{'=' * 60}")
-
-    if errors:
-        print(f"\n🔴 错误 ({len(errors)} 个) — 必须修复:")
-        for i, issue in enumerate(errors, 1):
-            print(f"  {i}. [{issue.category}] {issue.message}")
-
-    if warns:
-        print(f"\n🟡 警告 ({len(warns)} 个) — 建议修复:")
-        for i, issue in enumerate(warns, 1):
-            print(f"  {i}. [{issue.category}] {issue.message}")
-
-    print(f"\n{'=' * 60}")
-    print(f"总计: {len(errors)} 错误, {len(warns)} 警告")
-
-    sys.exit(2 if errors else 1)
+def main(argv=None):
+    import argparse
+    import json
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("filepath")
+    parser.add_argument("--json", action="store_true", help="Full structured findings")
+    parser.add_argument("--max-per-category", type=int, default=8,
+                        help="Console examples per category (default 8; JSON is never truncated)")
+    args = parser.parse_args(argv)
+    coverage = []
+    complete = True
+    uncompleted_pages = []
+    try:
+        issues = validate_pdf(args.filepath, coverage)
+    except (IncompleteCheck, ImportError, OSError, ValueError, RuntimeError) as exc:
+        complete = False
+        uncompleted_pages = list(getattr(exc, "uncompleted_pages", []))
+        issues = list(getattr(exc, "partial_issues", []))
+        issues.append(Issue("ERROR", "check-incomplete", str(exc),
+                            page=getattr(exc, "failed_page", None), candidate=False,
+                            review_status="not-run"))
+    report = build_report(args.filepath, issues, coverage, complete)
+    report["coverage"]["uncompleted_pages"] = uncompleted_pages
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        print(f"PDF 几何候选报告: {args.filepath}")
+        print(f"状态: {report['status']}；已检查 {len(coverage)} 页")
+        by_category = defaultdict(list)
+        for issue in issues:
+            by_category[issue.category].append(issue)
+        for category, members in by_category.items():
+            print(f"\n[{category}] 共 {len(members)} 项")
+            limit = max(0, args.max_per_category)
+            for issue in members[:limit]:
+                where = f"page={issue.page}, bbox={issue.bbox}"
+                print(f"  [{issue.level}; {issue.review_status}; {where}] {issue.message}")
+            omitted = len(members) - limit
+            if omitted > 0:
+                print(f"  另 {omitted} 项；完整坐标与局部分组见 --json。")
+        summary = report["summary"]
+        print(f"\n合计: {summary['error_count']} 错误候选/检测错误，"
+              f"{summary['warning_count']} 警告；{summary['review_group_count']} 局部复核组。")
+        print("自动几何检测不能替代渲染目视复核；未发现候选也不等于版式已通过。")
+    return 2 if (not complete or report["errors"]) else (1 if issues else 0)
 
 
 if __name__ == "__main__":
-    main()
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.exit(main())

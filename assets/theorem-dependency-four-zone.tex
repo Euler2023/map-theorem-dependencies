@@ -7,9 +7,10 @@
 \usepackage{amsmath,amssymb,unicode-math}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,backgrounds,calc}
-\setCJKmainfont{Microsoft YaHei}
+\IfFontExistsTF{Microsoft YaHei}{\setCJKmainfont{Microsoft YaHei}}{\setCJKmainfont{FandolSong-Regular}}
 \setmainfont{TeX Gyre Termes}
 \setmathfont{TeX Gyre Termes Math}
+\thinmuskip=3mu\medmuskip=4mu\thickmuskip=5mu
 \pagestyle{empty}
 
 \definecolor{ink}{HTML}{183042}
