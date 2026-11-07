@@ -40,6 +40,10 @@ Do not assume a manifest covers the complete document. A conversion manifest may
 | `group_id` | Functional group when several lemmas share one node |
 | `notes` | Numbering drift, ambiguity, translation issues |
 
+Unnumbered constructions, equation blocks, and consequences are valid inventory objects; use `kind: unnumbered` rather than assigning a new formal number. Give synthetic gates a local ID and an honest formula/section label. Keep the printed identifier separate from the stable machine ID.
+
+For automated validation, prefer JSON with a top-level `nodes` list. `included: true/false` (or `visible`) records displayed membership; `grouped` members remain outside the visible graph and carry `group_id`. Select terminal conclusions via `selected_conclusions` in the top-level object, node `selected_conclusion: true`, or the validator's `--conclusion` arguments. An intermediate selected gate can be marked separately. `role: conclusion` alone need not mean the audit's terminal target.
+
 ## 3. Edge schema
 
 | Field | Meaning |
@@ -53,6 +57,8 @@ Do not assume a manifest covers the complete document. A conversion manifest may
 | `inference` | `false` or concise explanation |
 | `visual_route` | main, upper-rail, lower-rail, local, context-band |
 
+Use `visible: true/false` for machine-readable edge visibility, or the supported compatibility convention `visual_route: ledger-only` for hidden edges. Do not rely on an omitted visibility field to mean a complete visual audit. Geometry-specific route text may be stored here, but visibility and source evidence must remain independently reviewable.
+
 Arrow direction is always `source_id -> target_id`: the source contributes to proving the target.
 
 ## 4. Evidence hierarchy
@@ -65,6 +71,8 @@ Arrow direction is always `source_id -> target_id`: the source contributes to pr
 6. **Not an edge**: thematic similarity, neighboring placement, shared terminology, shared citation, or an overview that only lists both results.
 
 Verify or expose every low-confidence main-spine edge as a gap.
+
+Confidence concerns the **dependency evidence**, not a certification of the theorem. Separate any certificate reproduction from full proof verification. If supplementary code is absent, inspect whether the paper itself supplies exact data and arithmetic instructions before declaring a gap. If only a finite certificate was checked, state that scope and the unverified upstream arguments.
 
 ## 5. Extraction patterns
 
@@ -87,11 +95,17 @@ rg -n "Theorem|Proposition|Lemma|Corollary|Proof" extracted.txt
 
 Render ambiguous pages when formulas or theorem numbers are unreliable in extracted text.
 
+Retain `\f` page separators, or split into numbered per-page files with explicit physical-page mapping. Record the source file and whether page/line numbering is printed, physical, or extracted. A keyword inventory can include bibliographic theorem numbers and prose references; verify each candidate's formal statement before counting it.
+
 ## 6. Pruning and grouping
 
 Use a complete ledger and a curated figure. Group results only when they share a functional role, enter the same route or target, remain interpretable as a group, and retain every displayed identifier.
 
 Do not group results to hide routing problems. Do not place a theorem in the context band if it contributes to a selected main conclusion.
+
+When an identity feeds another branch but its subsequent estimate does not, split those objects. For example, a residue identity used in both denominator estimates and a nonvanishing argument must not be replaced by an edge saying that the denominator estimate proves nonvanishing. A composite group is allowed only when its members and used subparts remain explicit and no false shortcut is introduced.
+
+Case labels must include the actual parameter domain. Two bounds may be globally valid yet be used on complementary domains; substitutability is a property of the proof route, not simply of their similar conclusions. A contradiction gate may jointly require rationality, a nonzero subsequence, and upper/lower estimates using the same normalization.
 
 ## 7. Semantic audit
 
@@ -107,6 +121,21 @@ Check programmatically where practical:
 - all labels use identifiers found in the source.
 
 Then manually verify the main spine and every low-confidence edge.
+
+Run the bundled structural checker where the inventory is machine-readable:
+
+```powershell
+python "$SKILL_ROOT/scripts/validate_dependency_graph.py" dependency-nodes.json dependency-edges.csv --tex figure.tex --conclusion thm-main
+```
+
+The node argument can also be an object containing `nodes` such as an authoring snapshot, or a bare list. Use `--gate` for selected intermediate closure gates when needed. Annotate each displayed TikZ edge next to its `\draw` command:
+
+```tex
+% EDGE lemma-a -> thm-main [direct]
+\draw[direct] (lemma-a.south)--(thm-main.north);
+```
+
+The checker compares those declarations to visible ledger edges, checks endpoints/duplicates/cycles and full versus visible reachability, and reports missing coverage. Comments are a traceability contract, **not a parser or proof of the rendered paths**: inspect the adjacent draw command and the PNG as well. Do not add artificial edges merely to silence disconnected-node warnings. Accepted equivalences should be collapsed to a documented group or reviewed explicitly, not globally exempted from cycle checks.
 
 ## 8. Lessons from a successful project
 

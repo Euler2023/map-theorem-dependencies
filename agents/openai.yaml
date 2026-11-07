@@ -1,4 +1,4 @@
 interface:
   display_name: "数学定理依赖图"
   short_description: "提取、核验并独立绘制数学文献中的定理逻辑依赖图"
-  default_prompt: "Use $map-theorem-dependencies to extract evidence-backed theorem dependencies, verify highlighted conclusions against the source, present a readable Mermaid skeleton, and independently compile and visually audit a publication-ready TikZ/PDF/PNG map."
+  default_prompt: "Use $map-theorem-dependencies to recover source-evidenced theorem dependencies, validate the complete and visible proof graphs, and, when requested, produce a readable TikZ/PDF/PNG map using measured box heights and visual checks."
